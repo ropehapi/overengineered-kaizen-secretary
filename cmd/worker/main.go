@@ -50,7 +50,7 @@ func main() {
 	loc, _ := time.LoadLocation("America/Sao_Paulo")
 	c := cron.New(cron.WithSeconds(), cron.WithLocation(loc))
 
-	_, err := c.AddFunc("0 00 16 7 3 *", func() {
+	_, err := c.AddFunc("* * * * * *", func() {
 		if err := routines.PublishScoutMonthlyFees(ctx, producer); err != nil {
 			slog.Error("falha ao publicar eventos de mensalidade", "error", err)
 		}
