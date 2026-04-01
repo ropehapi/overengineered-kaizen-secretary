@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    container_name: kaizen-secretary
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - manda-pra-mim
+
+networks:
+  manda-pra-mim:
+    external: true
