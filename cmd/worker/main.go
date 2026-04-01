@@ -14,6 +14,8 @@ import (
 	"github.com/ropehapi/kaizen-secretary/internal/kafka"
 	"github.com/ropehapi/kaizen-secretary/internal/logger"
 	"github.com/ropehapi/kaizen-secretary/internal/routines"
+	"github.com/ropehapi/kaizen-secretary/internal/telemetry"
+	"go.opentelemetry.io/otel"
 )
 
 func main() {
@@ -25,6 +27,19 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	shutdown, err := telemetry.Init(ctx)
+	if err != nil {
+		slog.Error("falha ao inicializar telemetria", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := shutdown(shutdownCtx); err != nil {
+			slog.Error("falha ao encerrar telemetria", "error", err)
+		}
+	}()
 
 	// Graceful shutdown via SIGINT / SIGTERM
 	sigCh := make(chan os.Signal, 1)
@@ -50,8 +65,10 @@ func main() {
 	loc, _ := time.LoadLocation("America/Sao_Paulo")
 	c := cron.New(cron.WithSeconds(), cron.WithLocation(loc))
 
-	_, err := c.AddFunc("* * * * * *", func() {
-		if err := routines.PublishScoutMonthlyFees(ctx, producer); err != nil {
+	_, err = c.AddFunc("*/30 * * * * *", func() {
+		spanCtx, span := otel.Tracer("kaizen-secretary").Start(ctx, "PublishScoutMonthlyFees")
+		defer span.End()
+		if err := routines.PublishScoutMonthlyFees(spanCtx, producer); err != nil {
 			slog.Error("falha ao publicar eventos de mensalidade", "error", err)
 		}
 	})

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	segmentio "github.com/segmentio/kafka-go"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // Deliverer entrega um evento de mensagem WhatsApp ao serviço de envio.
@@ -109,7 +110,10 @@ func NewMessagingOfficerDeliverer() *MessagingOfficerDeliverer {
 
 func newMessagingOfficerDeliverer(baseURL, apiKey, session string) *MessagingOfficerDeliverer {
 	return &MessagingOfficerDeliverer{
-		client:  &http.Client{Timeout: 10 * time.Second},
+		client: &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: otelhttp.NewTransport(http.DefaultTransport),
+		},
 		baseURL: baseURL,
 		apiKey:  apiKey,
 		session: session,
