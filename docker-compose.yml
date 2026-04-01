@@ -4,7 +4,56 @@ services:
     container_name: kaizen-secretary
     env_file:
       - .env
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC=whatsapp.messages.pending
     restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - manda-pra-mim
+
+  kafka:
+    image: apache/kafka:latest
+    container_name: kaizen-kafka
+    ports:
+      - "9094:9094"   # acesso externo (host): localhost:9094
+    environment:
+      # KRaft mode — sem Zookeeper
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      # PLAINTEXT: comunicação interna entre containers
+      # EXTERNAL:  acesso do host para testes/ferramentas locais
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+      - CLUSTER_ID=5L6g3nShT-eMCtK--X86sw
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - manda-pra-mim
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kaizen-kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=kaizen-secretary
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
     networks:
       - manda-pra-mim
 
