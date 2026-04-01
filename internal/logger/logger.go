@@ -1,14 +1,22 @@
 package logger
 
 import (
-	"log/slog"
 	"os"
+
+	"go.uber.org/zap"
 )
 
 func Init() {
-	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})
+	var logger *zap.Logger
+	var err error
 
-	slog.SetDefault(slog.New(handler))
+	if os.Getenv("APP_ENV") == "production" {
+		logger, err = zap.NewProduction()
+	} else {
+		logger, err = zap.NewDevelopment()
+	}
+	if err != nil {
+		panic("failed to initialize zap logger: " + err.Error())
+	}
+	zap.ReplaceGlobals(logger)
 }

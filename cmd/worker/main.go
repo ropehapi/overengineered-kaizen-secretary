@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -20,14 +19,16 @@ import (
 	"github.com/ropehapi/kaizen-secretary/internal/routines"
 	"github.com/ropehapi/kaizen-secretary/internal/telemetry"
 	"go.opentelemetry.io/otel"
+	"go.uber.org/zap"
 )
 
 func main() {
 	logger.Init()
+	defer func() { _ = zap.L().Sync() }()
 	metrics.Init()
 
 	if err := godotenv.Load(); err != nil {
-		slog.Warn("arquivo .env não encontrado, usando variáveis de ambiente do sistema", "error", err)
+		zap.L().Warn("arquivo .env não encontrado, usando variáveis de ambiente do sistema", zap.Error(err))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -41,21 +42,21 @@ func main() {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", promhttp.Handler())
 		if err := http.ListenAndServe(":"+metricsPort, mux); err != nil {
-			slog.Error("metrics server failed", "error", err)
+			zap.L().Error("metrics server failed", zap.Error(err))
 			os.Exit(1)
 		}
 	}()
 
 	shutdown, err := telemetry.Init(ctx)
 	if err != nil {
-		slog.Error("falha ao inicializar telemetria", "error", err)
+		zap.L().Error("falha ao inicializar telemetria", zap.Error(err))
 		os.Exit(1)
 	}
 	defer func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 		if err := shutdown(shutdownCtx); err != nil {
-			slog.Error("falha ao encerrar telemetria", "error", err)
+			zap.L().Error("falha ao encerrar telemetria", zap.Error(err))
 		}
 	}()
 
@@ -64,7 +65,7 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigCh
-		slog.Info("sinal recebido, encerrando...", "signal", sig)
+		zap.L().Info("sinal recebido, encerrando...", zap.String("signal", sig.String()))
 		cancel()
 	}()
 
@@ -87,21 +88,21 @@ func main() {
 		spanCtx, span := otel.Tracer("kaizen-secretary").Start(ctx, "PublishScoutMonthlyFees")
 		defer span.End()
 		if err := routines.PublishScoutMonthlyFees(spanCtx, producer); err != nil {
-			slog.Error("falha ao publicar eventos de mensalidade", "error", err)
+			zap.L().Error("falha ao publicar eventos de mensalidade", zap.Error(err))
 		}
 	})
 	if err != nil {
-		slog.Error("falha ao registrar cron job", "error", err)
+		zap.L().Error("falha ao registrar cron job", zap.Error(err))
 		panic(err)
 	}
 
-	slog.Info("kaizen-secretary iniciado",
-		"brokers", brokers,
-		"topic", topic)
+	zap.L().Info("kaizen-secretary iniciado",
+		zap.Strings("brokers", brokers),
+		zap.String("topic", topic))
 
 	c.Start()
 	defer c.Stop()
 
 	<-ctx.Done()
-	slog.Info("kaizen-secretary encerrado")
+	zap.L().Info("kaizen-secretary encerrado")
 }

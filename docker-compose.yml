@@ -42,6 +42,7 @@ services:
       - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:
       - prometheus
+      - loki
     networks:
       - manda-pra-mim
 
@@ -82,6 +83,31 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    networks:
+      - manda-pra-mim
+
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: kaizen-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./configs/loki.yml:/etc/loki/local-config.yaml:ro
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - manda-pra-mim
+
+  promtail:
+    image: grafana/promtail:3.3.2
+    container_name: kaizen-promtail
+    user: root
+    volumes:
+      - ./configs/promtail.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+      - app
     networks:
       - manda-pra-mim
 
