@@ -7,10 +7,24 @@ services:
     environment:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC=whatsapp.messages.pending
+      - OTEL_EXPORTER_OTLP_ENDPOINT=jaeger:4318
     restart: unless-stopped
     depends_on:
       kafka:
         condition: service_healthy
+      jaeger:
+        condition: service_started
+    networks:
+      - manda-pra-mim
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: kaizen-jaeger
+    ports:
+      - "16686:16686"  # UI
+      - "4318:4318"    # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
     networks:
       - manda-pra-mim
 

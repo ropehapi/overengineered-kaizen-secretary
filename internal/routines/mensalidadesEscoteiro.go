@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"github.com/ropehapi/kaizen-secretary/internal/kafka"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // Publisher publica eventos de mensagem WhatsApp em um broker.
@@ -24,21 +27,30 @@ func PublishScoutMonthlyFees(ctx context.Context, publisher Publisher) error {
 		"month", month,
 		"total", len(members))
 
+	tracer := otel.Tracer("kaizen-secretary")
 	var errs int
 	for name, phone := range members {
+		_, span := tracer.Start(ctx, "publish_whatsapp_event")
+		span.SetAttributes(
+			attribute.String("recipient.phone", phone),
+			attribute.String("recipient.name", name),
+		)
+
 		event := kafka.WhatsAppMessageEvent{
 			RecipientPhone: phone,
 			RecipientName:  name,
 			Message:        BuildMessage(name, month),
 		}
 		if err := publisher.Publish(ctx, event); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			slog.Error("falha ao publicar evento kafka",
 				"name", name,
 				"phone", phone,
 				"error", err)
 			errs++
-			continue
 		}
+		span.End()
 	}
 
 	slog.Info("eventos publicados no kafka",
