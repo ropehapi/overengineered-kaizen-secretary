@@ -9,10 +9,14 @@ import (
 	"syscall"
 	"time"
 
+	"net/http"
+
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/robfig/cron/v3"
 	"github.com/ropehapi/kaizen-secretary/internal/kafka"
 	"github.com/ropehapi/kaizen-secretary/internal/logger"
+	"github.com/ropehapi/kaizen-secretary/internal/metrics"
 	"github.com/ropehapi/kaizen-secretary/internal/routines"
 	"github.com/ropehapi/kaizen-secretary/internal/telemetry"
 	"go.opentelemetry.io/otel"
@@ -20,6 +24,7 @@ import (
 
 func main() {
 	logger.Init()
+	metrics.Init()
 
 	if err := godotenv.Load(); err != nil {
 		slog.Warn("arquivo .env não encontrado, usando variáveis de ambiente do sistema", "error", err)
@@ -27,6 +32,19 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	metricsPort := os.Getenv("METRICS_PORT")
+	if metricsPort == "" {
+		metricsPort = "9090"
+	}
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		if err := http.ListenAndServe(":"+metricsPort, mux); err != nil {
+			slog.Error("metrics server failed", "error", err)
+			os.Exit(1)
+		}
+	}()
 
 	shutdown, err := telemetry.Init(ctx)
 	if err != nil {

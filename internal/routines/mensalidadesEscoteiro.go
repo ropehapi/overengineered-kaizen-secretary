@@ -5,7 +5,9 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/ropehapi/kaizen-secretary/internal/kafka"
+	"github.com/ropehapi/kaizen-secretary/internal/metrics"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -20,6 +22,12 @@ type Publisher interface {
 // PublishScoutMonthlyFees publica um evento Kafka por contribuinte do grupo escoteiro.
 // A entrega efetiva ao WhatsApp é feita pelo Consumer do Kafka de forma assíncrona.
 func PublishScoutMonthlyFees(ctx context.Context, publisher Publisher) error {
+	const routineName = "PublishScoutMonthlyFees"
+
+	metrics.RoutineExecutionsTotal.WithLabelValues(routineName).Inc()
+	timer := prometheus.NewTimer(metrics.RoutineDurationSeconds.WithLabelValues(routineName))
+	defer timer.ObserveDuration()
+
 	month := monthInPortuguese(time.Now())
 	members := contributors()
 
@@ -44,13 +52,20 @@ func PublishScoutMonthlyFees(ctx context.Context, publisher Publisher) error {
 		if err := publisher.Publish(ctx, event); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
+			metrics.MessagesSentTotal.WithLabelValues(routineName, "failure").Inc()
 			slog.Error("falha ao publicar evento kafka",
 				"name", name,
 				"phone", phone,
 				"error", err)
 			errs++
+		} else {
+			metrics.MessagesSentTotal.WithLabelValues(routineName, "success").Inc()
 		}
 		span.End()
+	}
+
+	if errs > 0 {
+		metrics.RoutineErrorsTotal.WithLabelValues(routineName).Add(float64(errs))
 	}
 
 	slog.Info("eventos publicados no kafka",

@@ -8,12 +8,40 @@ services:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC=whatsapp.messages.pending
       - OTEL_EXPORTER_OTLP_ENDPOINT=jaeger:4318
+      - METRICS_PORT=9090
     restart: unless-stopped
     depends_on:
       kafka:
         condition: service_healthy
       jaeger:
         condition: service_started
+    networks:
+      - manda-pra-mim
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: kaizen-prometheus
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - app
+    networks:
+      - manda-pra-mim
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: kaizen-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
     networks:
       - manda-pra-mim
 
