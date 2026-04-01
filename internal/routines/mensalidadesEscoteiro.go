@@ -2,7 +2,6 @@ package routines
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -11,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.uber.org/zap"
 )
 
 // Publisher publica eventos de mensagem WhatsApp em um broker.
@@ -31,9 +31,9 @@ func PublishScoutMonthlyFees(ctx context.Context, publisher Publisher) error {
 	month := monthInPortuguese(time.Now())
 	members := contributors()
 
-	slog.Info("publicando lembretes de mensalidade escoteiro",
-		"month", month,
-		"total", len(members))
+	zap.L().Info("publicando lembretes de mensalidade escoteiro",
+		zap.String("month", month),
+		zap.Int("total", len(members)))
 
 	tracer := otel.Tracer("kaizen-secretary")
 	var errs int
@@ -53,10 +53,10 @@ func PublishScoutMonthlyFees(ctx context.Context, publisher Publisher) error {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			metrics.MessagesSentTotal.WithLabelValues(routineName, "failure").Inc()
-			slog.Error("falha ao publicar evento kafka",
-				"name", name,
-				"phone", phone,
-				"error", err)
+			zap.L().Error("falha ao publicar evento kafka",
+				zap.String("recipient_name", name),
+				zap.String("recipient", phone),
+				zap.Error(err))
 			errs++
 		} else {
 			metrics.MessagesSentTotal.WithLabelValues(routineName, "success").Inc()
@@ -68,9 +68,9 @@ func PublishScoutMonthlyFees(ctx context.Context, publisher Publisher) error {
 		metrics.RoutineErrorsTotal.WithLabelValues(routineName).Add(float64(errs))
 	}
 
-	slog.Info("eventos publicados no kafka",
-		"total", len(members),
-		"publish_errors", errs)
+	zap.L().Info("eventos publicados no kafka",
+		zap.Int("sent", len(members)-errs),
+		zap.Int("failed", errs))
 
 	return nil
 }

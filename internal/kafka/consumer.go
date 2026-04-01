@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
 	segmentio "github.com/segmentio/kafka-go"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.uber.org/zap"
 )
 
 // Deliverer entrega um evento de mensagem WhatsApp ao serviço de envio.
@@ -56,29 +56,29 @@ func (c *Consumer) ReadLoop(ctx context.Context) {
 			if ctx.Err() != nil {
 				return // shutdown gracioso
 			}
-			slog.Error("kafka read error", "error", err)
+			zap.L().Error("kafka read error", zap.Error(err))
 			continue
 		}
 
 		var event WhatsAppMessageEvent
 		if err := json.Unmarshal(msg.Value, &event); err != nil {
-			slog.Error("failed to unmarshal kafka message",
-				"error", err,
-				"offset", msg.Offset)
+			zap.L().Error("failed to unmarshal kafka message",
+				zap.Error(err),
+				zap.Int64("offset", msg.Offset))
 			continue
 		}
 
 		if err := c.deliverer.Deliver(ctx, event); err != nil {
-			slog.Error("failed to deliver message",
-				"error", err,
-				"recipient", event.RecipientPhone,
-				"offset", msg.Offset)
+			zap.L().Error("failed to deliver message",
+				zap.Error(err),
+				zap.String("recipient", event.RecipientPhone),
+				zap.Int64("offset", msg.Offset))
 			continue
 		}
 
-		slog.Info("message delivered via kafka consumer",
-			"recipient", event.RecipientPhone,
-			"offset", msg.Offset)
+		zap.L().Info("message delivered via kafka consumer",
+			zap.String("recipient", event.RecipientPhone),
+			zap.Int64("offset", msg.Offset))
 
 		if c.deliveryDelay > 0 {
 			time.Sleep(c.deliveryDelay)
