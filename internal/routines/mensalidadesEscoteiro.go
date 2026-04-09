@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/ropehapi/kaizen-secretary/internal/featureflags"
 	"github.com/ropehapi/kaizen-secretary/internal/kafka"
 	"github.com/ropehapi/kaizen-secretary/internal/metrics"
 	"go.opentelemetry.io/otel"
@@ -44,10 +45,25 @@ func PublishScoutMonthlyFees(ctx context.Context, publisher Publisher) error {
 			attribute.String("recipient.name", name),
 		)
 
+		msgBody := BuildMessage(name, month)
+
+		if featureflags.IsEnabled("dry_run_mode") {
+			preview := msgBody
+			if len(preview) > 50 {
+				preview = preview[:50]
+			}
+			zap.L().Info("[DRY RUN] would publish message",
+				zap.String("recipient_phone", phone),
+				zap.String("recipient_name", name),
+				zap.String("message_preview", preview))
+			span.End()
+			continue
+		}
+
 		event := kafka.WhatsAppMessageEvent{
 			RecipientPhone: phone,
 			RecipientName:  name,
-			Message:        BuildMessage(name, month),
+			Message:        msgBody,
 		}
 		if err := publisher.Publish(ctx, event); err != nil {
 			span.RecordError(err)
