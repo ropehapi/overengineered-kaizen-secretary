@@ -8,17 +8,13 @@ import (
 	"syscall"
 	"time"
 
-	"net/http"
-
 	"github.com/joho/godotenv"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/robfig/cron/v3"
 	"github.com/ropehapi/kaizen-secretary/internal/featureflags"
 	"github.com/ropehapi/kaizen-secretary/internal/kafka"
 	"github.com/ropehapi/kaizen-secretary/internal/logger"
 	"github.com/ropehapi/kaizen-secretary/internal/metrics"
 	"github.com/ropehapi/kaizen-secretary/internal/routines"
-	"github.com/ropehapi/kaizen-secretary/internal/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
@@ -39,24 +35,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	metricsPort := os.Getenv("METRICS_PORT")
-	if metricsPort == "" {
-		metricsPort = "9090"
-	}
-	go func() {
-		mux := http.NewServeMux()
-		mux.Handle("/metrics", promhttp.Handler())
-		if err := http.ListenAndServe(":"+metricsPort, mux); err != nil {
-			zap.L().Error("metrics server failed", zap.Error(err))
-			os.Exit(1)
-		}
-	}()
+	setupMetricsServer(os.Getenv("METRICS_PORT"))
 
-	shutdown, err := telemetry.Init(ctx)
-	if err != nil {
-		zap.L().Error("falha ao inicializar telemetria", zap.Error(err))
-		os.Exit(1)
-	}
+	shutdown := mustInitTelemetry(ctx)
 	defer func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
@@ -65,23 +46,11 @@ func main() {
 		}
 	}()
 
-	// Graceful shutdown via SIGINT / SIGTERM
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		sig := <-sigCh
-		zap.L().Info("sinal recebido, encerrando...", zap.String("signal", sig.String()))
-		cancel()
-	}()
-
 	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
 	topic := os.Getenv("KAFKA_TOPIC")
 
-	producer := kafka.NewProducer(brokers, topic)
+	producer, consumer := setupKafka(brokers, topic)
 	defer producer.Close()
-
-	deliverer := kafka.NewMessagingOfficerDeliverer()
-	consumer := kafka.NewConsumer(brokers, topic, "kaizen-secretary", deliverer, 2*time.Second)
 	defer consumer.Close()
 
 	go consumer.ReadLoop(ctx)
@@ -106,13 +75,35 @@ func main() {
 		panic(err)
 	}
 
-	zap.L().Info("kaizen-secretary iniciado",
-		zap.Strings("brokers", brokers),
-		zap.String("topic", topic))
+	_, err = c.AddFunc("*/30 * * * * *", func() {
+		spanCtx, span := otel.Tracer("kaizen-secretary").Start(ctx, "PublishActivityCancellationNotice")
+		defer span.End()
+		if err := routines.PublishActivityCancellationNotice(spanCtx, producer); err != nil {
+			zap.L().Error("falha ao publicar avisos de cancelamento de atividade", zap.Error(err))
+		}
+	})
+	if err != nil {
+		zap.L().Error("falha ao registrar cron job", zap.Error(err))
+		panic(err)
+	}
 
 	c.Start()
 	defer c.Stop()
 
+	go waitSignal(cancel)
+
+	zap.L().Info("kaizen-secretary iniciado",
+		zap.Strings("brokers", brokers),
+		zap.String("topic", topic))
+
 	<-ctx.Done()
 	zap.L().Info("kaizen-secretary encerrado")
+}
+
+func waitSignal(cancel context.CancelFunc) {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-sigCh
+	zap.L().Info("sinal recebido, encerrando...", zap.String("signal", sig.String()))
+	cancel()
 }
