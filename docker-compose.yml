@@ -9,12 +9,44 @@ services:
       - KAFKA_TOPIC=whatsapp.messages.pending
       - OTEL_EXPORTER_OTLP_ENDPOINT=jaeger:4318
       - METRICS_PORT=9090
+      - FLAGSMITH_HOST=http://flagsmith:8000/api/v1
     restart: unless-stopped
     depends_on:
       kafka:
         condition: service_healthy
       jaeger:
         condition: service_started
+    networks:
+      - manda-pra-mim
+
+  flagsmith-db:
+    image: postgres:16-alpine
+    container_name: kaizen-flagsmith-db
+    environment:
+      - POSTGRES_DB=flagsmith
+      - POSTGRES_USER=flagsmith
+      - POSTGRES_PASSWORD=flagsmith
+    volumes:
+      - flagsmith-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flagsmith"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - manda-pra-mim
+
+  flagsmith:
+    image: flagsmith/flagsmith:latest
+    container_name: kaizen-flagsmith
+    ports:
+      - "8000:8000"
+    environment:
+      - DJANGO_ALLOWED_HOSTS=*
+      - DATABASE_URL=postgresql://flagsmith:flagsmith@flagsmith-db:5432/flagsmith
+    depends_on:
+      flagsmith-db:
+        condition: service_healthy
     networks:
       - manda-pra-mim
 
@@ -128,3 +160,6 @@ services:
 networks:
   manda-pra-mim:
     external: true
+
+volumes:
+  flagsmith-db-data:

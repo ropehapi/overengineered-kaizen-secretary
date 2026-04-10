@@ -10,6 +10,8 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
+	"github.com/ropehapi/kaizen-secretary/internal/featureflags"
+	"github.com/ropehapi/kaizen-secretary/internal/kafka"
 	"github.com/ropehapi/kaizen-secretary/internal/logger"
 	"github.com/ropehapi/kaizen-secretary/internal/metrics"
 	"github.com/ropehapi/kaizen-secretary/internal/routines"
@@ -24,6 +26,10 @@ func main() {
 
 	if err := godotenv.Load(); err != nil {
 		zap.L().Warn("arquivo .env não encontrado, usando variáveis de ambiente do sistema", zap.Error(err))
+	}
+
+	if err := featureflags.Init(); err != nil {
+		zap.L().Warn("flagsmith unavailable, all flags default to false", zap.Error(err))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -52,7 +58,12 @@ func main() {
 	loc, _ := time.LoadLocation("America/Sao_Paulo")
 	c := cron.New(cron.WithSeconds(), cron.WithLocation(loc))
 
-	_, err := c.AddFunc("*/30 * * * * *", func() {
+	_, err = c.AddFunc("*/30 * * * * *", func() {
+		if !featureflags.IsEnabled("scout_monthly_reminder_enabled") {
+			zap.L().Info("routine disabled by feature flag",
+				zap.String("routine", "PublishScoutMonthlyFees"))
+			return
+		}
 		spanCtx, span := otel.Tracer("kaizen-secretary").Start(ctx, "PublishScoutMonthlyFees")
 		defer span.End()
 		if err := routines.PublishScoutMonthlyFees(spanCtx, producer); err != nil {
