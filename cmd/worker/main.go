@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/robfig/cron/v3"
+	"github.com/ropehapi/kaizen-secretary/internal/flagsmith"
 	"github.com/ropehapi/kaizen-secretary/internal/kafka"
 	"github.com/ropehapi/kaizen-secretary/internal/logger"
 	"github.com/ropehapi/kaizen-secretary/internal/metrics"
@@ -30,6 +32,8 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		zap.L().Warn("arquivo .env não encontrado, usando variáveis de ambiente do sistema", zap.Error(err))
 	}
+
+	fs := flagsmith.NewClient(os.Getenv("FLAGSMITH_API_KEY"))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -85,6 +89,7 @@ func main() {
 	c := cron.New(cron.WithSeconds(), cron.WithLocation(loc))
 
 	_, err = c.AddFunc("*/30 * * * * *", func() {
+		zap.L().Info("Flagsmith: "+ strconv.FormatBool(fs.IsEnable("routine_mensalidade_escoteiro")))
 		spanCtx, span := otel.Tracer("kaizen-secretary").Start(ctx, "PublishScoutMonthlyFees")
 		defer span.End()
 		if err := routines.PublishScoutMonthlyFees(spanCtx, producer); err != nil {

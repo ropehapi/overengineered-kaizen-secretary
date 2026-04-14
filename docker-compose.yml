@@ -125,6 +125,35 @@ services:
     networks:
       - manda-pra-mim
 
+  flagsmith-database:
+    image: postgres:15
+    container_name: kaizen-flagsmith-database
+    environment:
+      POSTGRES_PASSWORD: flagsmith
+      POSTGRES_USER: flagsmith
+      POSTGRES_DB: flagsmith
+    ports: 
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  flagsmith:
+    image: flagsmith/flagsmith:latest
+    container_name: kaizen-flagsmith
+    environment:
+      DATABASE_URL: postgresql://flagsmith:flagsmith@flagsmith-database:5432/flagsmith
+      ENV: prod
+      ALLOW_REGISTRATION_WITHOUT_INVITE: "true"
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - flagsmith-database
+  
+volumes: 
+  postgres_data:
+
 networks:
   manda-pra-mim:
     external: true
+  
